@@ -5,9 +5,12 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include "bst.h"
 
 #define PORT 8080
 #define BACKLOG 10
+
+extern Node* root;  // BST root declared in bst.c
 
 void handle_client(int client_socket) {
     char buffer[1024];
@@ -20,32 +23,43 @@ void handle_client(int client_socket) {
     }
 
     buffer[bytes_read] = '\0';
-    printf("%s", buffer);
+    printf("Request: %s\n", buffer);
 
     char method[16], path[256], version[16];
     sscanf(buffer, "%s %s %s", method, path, version);
 
-    const char *html_content = "<html><body><h1>Hello, World!</h1></body></html>";
-    int content_length = strlen(html_content);  // Calculate the length of the HTML content
+    // Lookup the path in the BST
+    Node *found = search(root, path + 1);  // +1 to skip the leading '/'
 
     char response[1024];
-    int response_length = snprintf(response, sizeof(response),
-
-    "HTTP/1.1 200 OK\r\n"
-    "Content-Type: text/html\r\n"
-    "Content-Length: %d\r\n"  // Use the calculated length
-    "\r\n"
-    "%s", content_length, html_content);
-
-
+    int response_length;
+    if (found) {
+        // Found the path in the BST, respond with the HTML content
+        response_length = snprintf(response, sizeof(response),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/html\r\n"
+            "Content-Length: %zu\r\n"
+            "\r\n"
+            "%s", strlen(found->value), found->value);
+    } else {
+        // Path not found, respond with 404 Not Found
+        const char *not_found_message = "<html><body><h1>404 Not Found</h1></body></html>";
+        response_length = snprintf(response, sizeof(response),
+            "HTTP/1.1 404 Not Found\r\n"
+            "Content-Type: text/html\r\n"
+            "Content-Length: %zu\r\n"
+            "\r\n"
+            "%s", strlen(not_found_message), not_found_message);
+    }
 
     write(client_socket, response, response_length);
-
+    close(client_socket);
 }
 
 int main(int argc, char *argv[]) {
     int server_fd, new_socket;
     struct sockaddr_in server_addr, client_addr;
+
     socklen_t addr_len = sizeof(client_addr);
     int opt = 1;
 
@@ -77,6 +91,8 @@ int main(int argc, char *argv[]) {
     }
 
     printf("HTTP Server listening on port %d\n", PORT);
+
+    root = insertNode(root, "hello", "<html><body><h1>Hello, World!</h1></body></html>");
 
     while (1) {
         if ((new_socket = accept(server_fd, (struct sockaddr *)&client_addr, &addr_len)) < 0) {
